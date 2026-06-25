@@ -1,0 +1,12 @@
+package ru.arina.maxbot.domain;
+
+public enum ConversationState {
+    IDLE,
+    WAITING_FULL_NAME,
+    WAITING_COMPANY,
+    WAITING_PROBLEM_TYPE,
+    WAITING_DESCRIPTION,
+    WAITING_REJECTION_REASON,
+    WAITING_BROADCAST_TEXT,
+    WAITING_ADMIN_ID
+}
