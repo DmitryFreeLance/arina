@@ -82,6 +82,43 @@ public class BotUpdateHandler {
         }
     }
 
+    @Transactional
+    public void handleFailure(JsonNode rawUpdate, Exception exception) {
+        MaxIncomingUpdate update = new MaxIncomingUpdate(rawUpdate);
+        Long userId = Optional.ofNullable(update.actorUserId()).orElse(update.callbackUserId());
+        String callbackId = update.callbackId();
+
+        log.warn("Update handling failed for type={}: {}", update.updateType(), exception.getMessage(), exception);
+
+        if (StringUtils.hasText(callbackId)) {
+            try {
+                maxApiClient.answerCallback(callbackId, "Внутренняя ошибка, но бот уже восстановился");
+            } catch (Exception callbackError) {
+                log.warn("Could not answer failed callback {}: {}", callbackId, callbackError.getMessage());
+            }
+        }
+
+        if (userId == null) {
+            return;
+        }
+
+        try {
+            BotUser user = userService.touchUser(userId, update.actorName(), update.actorUsername());
+            user.setConversationState(ConversationState.IDLE);
+            user.clearDraft();
+            user.setListMode("NONE");
+            user.setActiveTicketId(null);
+            botUserRepository.save(user);
+            maxApiClient.sendMessageToUser(
+                    user.getId(),
+                    messageFactory.recoveryMessage(user.isAdmin()),
+                    keyboardFactory.mainMenu(user.isAdmin())
+            );
+        } catch (Exception notifyError) {
+            log.warn("Could not notify user {} after failure: {}", userId, notifyError.getMessage());
+        }
+    }
+
     private void handleIncomingText(MaxIncomingUpdate update) {
         Long userId = update.actorUserId();
         if (userId == null) {

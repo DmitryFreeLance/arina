@@ -7,10 +7,8 @@ import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 import org.springframework.web.client.RestClient;
-import org.springframework.web.util.UriUtils;
 import ru.arina.maxbot.config.BotProperties;
 
-import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -80,33 +78,16 @@ public class MaxApiClient {
         post("/answers?callback_id=" + callbackId, body);
     }
 
-    public void registerWebhook() {
-        if (!StringUtils.hasText(botProperties.getWebhookUrl())) {
-            log.info("WEBHOOK_URL is empty, webhook auto-registration skipped");
-            return;
+    public JsonNode getUpdates(Long marker) {
+        String uri = botProperties.getApiBaseUrl() + "/updates";
+        if (marker != null) {
+            uri += "?marker=" + marker;
         }
-        try {
-            deleteWebhook(botProperties.getWebhookUrl());
-        } catch (Exception ex) {
-            log.warn("Could not delete previous webhook subscription: {}", ex.getMessage());
-        }
-
-        Map<String, Object> body = new HashMap<>();
-        body.put("url", botProperties.getWebhookUrl());
-        body.put("update_types", List.of("bot_started", "message_created", "message_callback"));
-        if (StringUtils.hasText(botProperties.getWebhookSecret())) {
-            body.put("secret", botProperties.getWebhookSecret());
-        }
-        post("/subscriptions", body);
-        log.info("Webhook registered for {}", botProperties.getWebhookUrl());
-    }
-
-    public void deleteWebhook(String url) {
-        restClient.delete()
-                .uri(botProperties.getApiBaseUrl() + "/subscriptions?url=" + UriUtils.encode(url, StandardCharsets.UTF_8))
+        return restClient.get()
+                .uri(uri)
                 .header("Authorization", botProperties.getToken())
                 .retrieve()
-                .toBodilessEntity();
+                .body(JsonNode.class);
     }
 
     public JsonNode getMe() {

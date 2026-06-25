@@ -133,6 +133,12 @@ public class MessageFactory {
                 : "Я на связи. Используйте кнопки меню ниже: можно создать заявку или обновить ваши данные.";
     }
 
+    public String recoveryMessage(boolean admin) {
+        return admin
+                ? "⚠️ Я поймал нестандартную ситуацию, но остаюсь на связи. Давайте продолжим с главного меню или админ панели."
+                : "⚠️ Я поймал нестандартную ситуацию, но остаюсь на связи. Давайте продолжим с главного меню.";
+    }
+
     public String statusLabel(TicketStatus status) {
         return switch (status) {
             case NEW -> "Новая";

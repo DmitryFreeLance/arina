@@ -7,13 +7,11 @@ public class BotProperties {
 
     private String token;
     private String apiBaseUrl;
-    private String webhookUrl;
-    private String webhookSecret;
-    private String appBaseUrl;
     private String companyName;
     private String adminIds;
     private boolean notifyOnStartup;
     private int pageSize = 8;
+    private long pollingDelayMs = 1500;
 
     public String getToken() {
         return token;
@@ -29,30 +27,6 @@ public class BotProperties {
 
     public void setApiBaseUrl(String apiBaseUrl) {
         this.apiBaseUrl = apiBaseUrl;
-    }
-
-    public String getWebhookUrl() {
-        return webhookUrl;
-    }
-
-    public void setWebhookUrl(String webhookUrl) {
-        this.webhookUrl = webhookUrl;
-    }
-
-    public String getWebhookSecret() {
-        return webhookSecret;
-    }
-
-    public void setWebhookSecret(String webhookSecret) {
-        this.webhookSecret = webhookSecret;
-    }
-
-    public String getAppBaseUrl() {
-        return appBaseUrl;
-    }
-
-    public void setAppBaseUrl(String appBaseUrl) {
-        this.appBaseUrl = appBaseUrl;
     }
 
     public String getCompanyName() {
@@ -85,5 +59,13 @@ public class BotProperties {
 
     public void setPageSize(int pageSize) {
         this.pageSize = pageSize;
+    }
+
+    public long getPollingDelayMs() {
+        return pollingDelayMs;
+    }
+
+    public void setPollingDelayMs(long pollingDelayMs) {
+        this.pollingDelayMs = pollingDelayMs;
     }
 }

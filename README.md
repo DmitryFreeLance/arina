@@ -14,7 +14,7 @@ Java-бот для MAX под сценарий приёма заявок на н
 - проект уже переведён на `https://platform-api2.max.ru`
 - токен передаётся только через заголовок `Authorization`
 - контейнер добавляет сертификаты Минцифры в системное и Java truststore
-- для production используется webhook, а не long polling
+- бот работает через long polling `GET /updates`
 
 Источники:
 
@@ -31,11 +31,10 @@ Java-бот для MAX под сценарий приёма заявок на н
 Ключевые переменные:
 
 - `BOT_TOKEN` - токен бота MAX
-- `WEBHOOK_URL` - публичный HTTPS URL webhook, например `https://example.ru/webhook`
-- `WEBHOOK_SECRET` - секрет для заголовка `X-Max-Bot-Api-Secret`
 - `COMPANY_NAME` - название управляющей компании в приветственном тексте
 - `ADMIN_IDS` - список `user_id` через запятую для первичных администраторов
 - `DB_PATH` - путь к файловой H2 базе внутри контейнера
+- `POLLING_DELAY_MS` - задержка между запросами `GET /updates`
 
 ## Сборка
 
@@ -57,8 +56,6 @@ docker run -d \
   --restart unless-stopped \
   -p 8080:8080 \
   -e BOT_TOKEN="your_max_bot_token" \
-  -e WEBHOOK_URL="https://your-domain.ru/webhook" \
-  -e WEBHOOK_SECRET="superSecret123" \
   -e COMPANY_NAME='ООО "УК Тамплиеры"' \
   -e ADMIN_IDS="123456789,987654321" \
   -e SERVER_PORT="8080" \
@@ -66,7 +63,7 @@ docker run -d \
   -e DB_PASSWORD="" \
   -e PAGE_SIZE="8" \
   -e BOT_API_BASE_URL="https://platform-api2.max.ru" \
-  -e APP_BASE_URL="https://your-domain.ru" \
+  -e POLLING_DELAY_MS="1500" \
   -v max-helpdesk-data:/data \
   max-helpdesk-bot:latest
 ```
@@ -94,18 +91,17 @@ docker run -d \
    - `Отметить исполненной`
 4. При отклонении бот запрашивает причину и пересылает её пользователю.
 
-## Webhook
+## Long Polling
 
-После запуска приложение пытается:
+После запуска приложение:
 
 1. получить профиль бота через `GET /me`
-2. удалить прежнюю подписку на указанный `WEBHOOK_URL`
-3. зарегистрировать новую подписку через `POST /subscriptions`
+2. запустить цикл опроса `GET /updates`
+3. сохранить `marker` в памяти процесса и забирать новые события последовательно
 
 Публичный endpoint приложения:
 
 - `GET /health`
-- `POST /webhook`
 
 ## Примечание
 

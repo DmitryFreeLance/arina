@@ -29,10 +29,8 @@ logging:
 bot:
   token: ${BOT_TOKEN}
   api-base-url: ${BOT_API_BASE_URL:https://platform-api2.max.ru}
-  webhook-url: ${WEBHOOK_URL:}
-  webhook-secret: ${WEBHOOK_SECRET:}
-  app-base-url: ${APP_BASE_URL:http://localhost:8080}
   company-name: ${COMPANY_NAME:Управляющая компания "Комфорт Сервис"}
   admin-ids: ${ADMIN_IDS:}
   notify-on-startup: ${NOTIFY_ON_STARTUP:false}
   page-size: ${PAGE_SIZE:8}
+  polling-delay-ms: ${POLLING_DELAY_MS:1500}
