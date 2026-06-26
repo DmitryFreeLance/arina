@@ -667,11 +667,15 @@ public class BotUpdateHandler {
     private void notifyAdminsAboutNewTicket(Ticket ticket) {
         List<BotUser> admins = userService.admins();
         for (BotUser admin : admins) {
-            maxApiClient.sendMessageToUser(
-                    admin.getId(),
-                    messageFactory.adminTicketCard(ticket),
-                    keyboardFactory.ticketActions(ticket.getId(), false)
-            );
+            try {
+                maxApiClient.sendMessageToUser(
+                        admin.getId(),
+                        messageFactory.adminTicketCard(ticket),
+                        keyboardFactory.ticketActions(ticket.getId(), false)
+                );
+            } catch (Exception ex) {
+                log.warn("Could not notify admin {} about ticket {}: {}", admin.getId(), ticket.getId(), ex.getMessage());
+            }
         }
     }
 
