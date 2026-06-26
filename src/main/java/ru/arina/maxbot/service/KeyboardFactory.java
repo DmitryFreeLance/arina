@@ -13,7 +13,7 @@ public class KeyboardFactory {
 
     public List<Map<String, Object>> mainMenu(boolean admin) {
         List<List<InlineKeyboardButton>> rows = new ArrayList<>();
-        rows.add(List.of(InlineKeyboardButton.message("📝 Заявка на неисправность")));
+        rows.add(List.of(InlineKeyboardButton.message("📝 Заявка в УК")));
         rows.add(List.of(InlineKeyboardButton.message("👤 Обновить мои данные")));
         if (admin) {
             rows.add(List.of(InlineKeyboardButton.message("🛠 Админ панель")));

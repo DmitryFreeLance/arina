@@ -165,7 +165,7 @@ public class BotUpdateHandler {
             return;
         }
 
-        if ("📝 Заявка на неисправность".equalsIgnoreCase(text)) {
+        if ("📝 Заявка в УК".equalsIgnoreCase(text)) {
             startTicketFlow(user);
             return;
         }
