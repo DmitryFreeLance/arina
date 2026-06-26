@@ -21,11 +21,13 @@ public class MessageFactory {
 
     public String welcome(BotUser user) {
         StringBuilder builder = new StringBuilder();
-        builder.append("🏢 Добро пожаловать в систему заявок ").append(botProperties.getCompanyName()).append("!\n\n");
-        builder.append("Я помогу быстро передать информацию о неисправности, а затем сообщу, что происходит с вашей заявкой.\n\n");
         if (!user.isRegistered()) {
-            builder.append("Чтобы начать, нажмите «Заявка на неисправность» или «Обновить мои данные».\n");
+            builder.append("🏢 Добро пожаловать в систему заявок ").append(botProperties.getCompanyName()).append("\n\n");
+            builder.append("Для начала работы необходимо пройти регистрацию.\n");
+            builder.append("Пожалуйста, введите ваше полное ФИО:");
         } else {
+            builder.append("🏢 Добро пожаловать в систему заявок ").append(botProperties.getCompanyName()).append("!\n\n");
+            builder.append("Я помогу быстро передать информацию о неисправности и сообщу, что происходит с вашей заявкой.\n\n");
             builder.append("Вы зарегистрированы как:\n");
             builder.append("👤 ").append(TextUtils.safe(user.getFullName())).append("\n");
             builder.append("🏢 ").append(TextUtils.safe(user.getCompanyName())).append("\n\n");
@@ -38,19 +40,23 @@ public class MessageFactory {
     }
 
     public String askFullName() {
-        return "📝 Давайте оформим заявку.\n\nВведите ваше полное ФИО одним сообщением.";
+        return "📝 Для начала работы необходимо пройти регистрацию.\n\nПожалуйста, введите ваше полное ФИО:";
     }
 
     public String askCompany() {
-        return "🏢 Отлично. Теперь напишите название вашей компании или подразделения.";
+        return "🏢 Теперь введите название Вашей организации:";
     }
 
     public String askProblemType() {
-        return "🧰 Выберите тип проблемы кнопкой ниже. Каждая кнопка отправит свой текст автоматически.";
+        return "🧰 Выберите тип проблемы кнопкой ниже.";
     }
 
     public String askDescription() {
-        return "📋 Опишите проблему как можно подробнее одним сообщением.\n\nНапример: кабинет, этаж, что сломано, как давно возникла неисправность, что уже пробовали сделать.";
+        return "📋 Опишите вашу проблему подробно в одном сообщении.\n\nМожете указать кабинет, этаж, что именно сломалось и что нужно сделать.";
+    }
+
+    public String registrationCompleted() {
+        return "✅ Регистрация завершена!\n\nТеперь вы можете создавать заявки на неисправности.";
     }
 
     public String ticketCreated(Ticket ticket) {

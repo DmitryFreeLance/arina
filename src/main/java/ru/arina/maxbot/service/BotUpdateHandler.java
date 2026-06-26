@@ -21,11 +21,23 @@ import ru.arina.maxbot.util.TextUtils;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.Map;
 import java.util.Optional;
 
 @Service
 public class BotUpdateHandler {
+
+    private static final Pattern TICKET_VIEW_PATTERN = Pattern.compile("^📄 Заявка #(\\d+).*$");
+    private static final Pattern TICKET_ACCEPT_PATTERN = Pattern.compile("^✅ Принять заявку #(\\d+)$");
+    private static final Pattern TICKET_REJECT_PATTERN = Pattern.compile("^❌ Отклонить заявку #(\\d+)$");
+    private static final Pattern TICKET_COMPLETE_PATTERN = Pattern.compile("^🎉 Отметить исполненной #(\\d+)$");
+    private static final Pattern USER_VIEW_PATTERN = Pattern.compile("^👤 Пользователь (\\d+).*$");
+    private static final Pattern USER_PROMOTE_PATTERN = Pattern.compile("^🛡 Выдать админку (\\d+)$");
+    private static final Pattern USER_DEMOTE_PATTERN = Pattern.compile("^🔓 Снять админку у (\\d+)$");
+    private static final Pattern TICKETS_PAGE_PATTERN = Pattern.compile("^(?:⬅️ |➡️ )?📂 Страница заявок (\\d+)$");
+    private static final Pattern USERS_PAGE_PATTERN = Pattern.compile("^(?:⬅️ |➡️ )?👥 Страница пользователей (\\d+)$");
 
     private static final Logger log = LoggerFactory.getLogger(BotUpdateHandler.class);
 
@@ -60,7 +72,7 @@ public class BotUpdateHandler {
             Long userId = Optional.ofNullable(update.actorUserId()).orElse(update.callbackUserId());
             if (userId != null) {
                 BotUser user = userService.touchUser(userId, update.actorName(), update.actorUsername());
-                sendMainMenu(user);
+                sendStartOrMenu(user);
             }
             return;
         }
@@ -136,7 +148,7 @@ public class BotUpdateHandler {
             user.clearDraft();
             user.setListMode("NONE");
             botUserRepository.save(user);
-            sendMainMenu(user);
+            sendStartOrMenu(user);
             return;
         }
 
@@ -153,18 +165,54 @@ public class BotUpdateHandler {
             return;
         }
 
-        if ("Заявка на неисправность".equalsIgnoreCase(text)) {
+        if ("📝 Заявка на неисправность".equalsIgnoreCase(text)) {
             startTicketFlow(user);
             return;
         }
 
-        if ("Обновить мои данные".equalsIgnoreCase(text)) {
+        if ("👤 Обновить мои данные".equalsIgnoreCase(text)) {
             startProfileRefresh(user);
             return;
         }
 
-        if ("Админ панель".equalsIgnoreCase(text) && user.isAdmin()) {
+        if ("🛠 Админ панель".equalsIgnoreCase(text) && user.isAdmin()) {
             showAdminMenu(user);
+            return;
+        }
+
+        if ("🏠 Главное меню".equalsIgnoreCase(text)) {
+            sendStartOrMenu(user);
+            return;
+        }
+
+        if ("📂 Неисполненные заявки".equalsIgnoreCase(text) && user.isAdmin()) {
+            renderOpenTickets(user, 0);
+            return;
+        }
+
+        if ("👥 Пользователи".equalsIgnoreCase(text) && user.isAdmin()) {
+            renderUsers(user, 0);
+            return;
+        }
+
+        if ("📣 Рассылка".equalsIgnoreCase(text) && user.isAdmin()) {
+            user.setConversationState(ConversationState.WAITING_BROADCAST_TEXT);
+            botUserRepository.save(user);
+            maxApiClient.sendMessageToUser(user.getId(), messageFactory.askBroadcastText(), keyboardFactory.cancelOnly());
+            return;
+        }
+
+        if ("📂 К списку заявок".equalsIgnoreCase(text) && user.isAdmin()) {
+            renderOpenTickets(user, user.getListPage() == null ? 0 : user.getListPage());
+            return;
+        }
+
+        if ("👥 К списку пользователей".equalsIgnoreCase(text) && user.isAdmin()) {
+            renderUsers(user, user.getListPage() == null ? 0 : user.getListPage());
+            return;
+        }
+
+        if (user.isAdmin() && handleAdminTextCommand(user, text)) {
             return;
         }
 
@@ -192,13 +240,23 @@ public class BotUpdateHandler {
                     maxApiClient.sendMessageToUser(user.getId(), messageFactory.profileUpdated(), keyboardFactory.mainMenu(user.isAdmin()));
                     return true;
                 }
+                if ("REGISTRATION".equals(user.getListMode())) {
+                    user.setFullName(user.getDraftFullName());
+                    user.setCompanyName(user.getDraftCompanyName());
+                    user.setConversationState(ConversationState.IDLE);
+                    user.clearDraft();
+                    user.setListMode("NONE");
+                    botUserRepository.save(user);
+                    maxApiClient.sendMessageToUser(user.getId(), messageFactory.registrationCompleted(), keyboardFactory.mainMenu(user.isAdmin()));
+                    return true;
+                }
                 user.setConversationState(ConversationState.WAITING_PROBLEM_TYPE);
                 botUserRepository.save(user);
                 maxApiClient.sendMessageToUser(user.getId(), messageFactory.askProblemType(), keyboardFactory.issueTypes());
                 return true;
             }
             case WAITING_PROBLEM_TYPE -> {
-                user.setDraftProblemType(TextUtils.truncate(text, 255));
+                user.setDraftProblemType(cleanProblemType(text));
                 user.setConversationState(ConversationState.WAITING_DESCRIPTION);
                 botUserRepository.save(user);
                 maxApiClient.sendMessageToUser(user.getId(), messageFactory.askDescription(), keyboardFactory.cancelOnly());
@@ -206,8 +264,6 @@ public class BotUpdateHandler {
             }
             case WAITING_DESCRIPTION -> {
                 user.setDraftDescription(TextUtils.truncate(text, 4000));
-                user.setFullName(user.getDraftFullName());
-                user.setCompanyName(user.getDraftCompanyName());
                 Ticket ticket = ticketService.create(user);
                 user.setConversationState(ConversationState.IDLE);
                 user.clearDraft();
@@ -279,11 +335,17 @@ public class BotUpdateHandler {
     }
 
     private void startTicketFlow(BotUser user) {
+        if (!user.isRegistered()) {
+            startRegistration(user);
+            return;
+        }
         user.clearDraft();
+        user.setDraftFullName(user.getFullName());
+        user.setDraftCompanyName(user.getCompanyName());
         user.setListMode("TICKET");
-        user.setConversationState(ConversationState.WAITING_FULL_NAME);
+        user.setConversationState(ConversationState.WAITING_PROBLEM_TYPE);
         botUserRepository.save(user);
-        maxApiClient.sendMessageToUser(user.getId(), messageFactory.askFullName(), keyboardFactory.cancelOnly());
+        maxApiClient.sendMessageToUser(user.getId(), messageFactory.askProblemType(), keyboardFactory.issueTypes());
     }
 
     private void startProfileRefresh(BotUser user) {
@@ -294,12 +356,92 @@ public class BotUpdateHandler {
         maxApiClient.sendMessageToUser(user.getId(), "🔄 Обновим данные профиля.\n\n" + messageFactory.askFullName(), keyboardFactory.cancelOnly());
     }
 
+    private void startRegistration(BotUser user) {
+        user.clearDraft();
+        user.setListMode("REGISTRATION");
+        user.setConversationState(ConversationState.WAITING_FULL_NAME);
+        botUserRepository.save(user);
+        maxApiClient.sendMessageToUser(user.getId(), messageFactory.askFullName(), keyboardFactory.cancelOnly());
+    }
+
+    private void sendStartOrMenu(BotUser user) {
+        if (!user.isRegistered()) {
+            user.setListMode("REGISTRATION");
+            user.setConversationState(ConversationState.WAITING_FULL_NAME);
+            botUserRepository.save(user);
+            maxApiClient.sendMessageToUser(user.getId(), messageFactory.welcome(user), keyboardFactory.cancelOnly());
+            return;
+        }
+        sendMainMenu(user);
+    }
+
     private void sendMainMenu(BotUser user) {
         maxApiClient.sendMessageToUser(user.getId(), messageFactory.welcome(user), keyboardFactory.mainMenu(user.isAdmin()));
     }
 
     private void showAdminMenu(BotUser user) {
         maxApiClient.sendMessageToUser(user.getId(), messageFactory.adminPanelIntro(), keyboardFactory.adminMenu());
+    }
+
+    private boolean handleAdminTextCommand(BotUser user, String text) {
+        Long ticketId = extractLong(text, TICKET_VIEW_PATTERN);
+        if (ticketId != null) {
+            renderTicket(ticketId, user);
+            return true;
+        }
+
+        ticketId = extractLong(text, TICKET_ACCEPT_PATTERN);
+        if (ticketId != null) {
+            onAcceptTicket(user, ticketId, null);
+            return true;
+        }
+
+        ticketId = extractLong(text, TICKET_REJECT_PATTERN);
+        if (ticketId != null) {
+            user.setConversationState(ConversationState.WAITING_REJECTION_REASON);
+            user.setActiveTicketId(ticketId);
+            botUserRepository.save(user);
+            maxApiClient.sendMessageToUser(user.getId(), "✍️ Напишите причину отклонения для заявки #" + ticketId + ".", keyboardFactory.cancelOnly());
+            return true;
+        }
+
+        ticketId = extractLong(text, TICKET_COMPLETE_PATTERN);
+        if (ticketId != null) {
+            onCompleteTicket(user, ticketId, null);
+            return true;
+        }
+
+        Long targetUserId = extractLong(text, USER_VIEW_PATTERN);
+        if (targetUserId != null) {
+            renderUserCard(targetUserId, user);
+            return true;
+        }
+
+        targetUserId = extractLong(text, USER_PROMOTE_PATTERN);
+        if (targetUserId != null) {
+            onPromote(targetUserId, user, null);
+            return true;
+        }
+
+        targetUserId = extractLong(text, USER_DEMOTE_PATTERN);
+        if (targetUserId != null) {
+            onDemote(targetUserId, user, null);
+            return true;
+        }
+
+        Long page = extractLong(text, TICKETS_PAGE_PATTERN);
+        if (page != null) {
+            renderOpenTickets(user, Math.max(0, page.intValue() - 1));
+            return true;
+        }
+
+        page = extractLong(text, USERS_PAGE_PATTERN);
+        if (page != null) {
+            renderUsers(user, Math.max(0, page.intValue() - 1));
+            return true;
+        }
+
+        return false;
     }
 
     private void handleCallback(MaxIncomingUpdate update) {
@@ -311,12 +453,12 @@ public class BotUpdateHandler {
         String payload = Optional.ofNullable(update.callbackPayload()).orElse("");
         String callbackId = update.callbackId();
         if (!user.isAdmin()) {
-            maxApiClient.answerCallback(callbackId, "Эта кнопка доступна только администраторам");
+            maxApiClient.answerCallback(callbackId, null);
             return;
         }
 
         if ("admin:menu".equals(payload) || "admin:home".equals(payload)) {
-            maxApiClient.answerCallback(callbackId, "Открываю админ панель");
+            maxApiClient.answerCallback(callbackId, null);
             showAdminMenu(user);
             return;
         }
@@ -324,7 +466,7 @@ public class BotUpdateHandler {
         if ("admin:broadcast".equals(payload)) {
             user.setConversationState(ConversationState.WAITING_BROADCAST_TEXT);
             botUserRepository.save(user);
-            maxApiClient.answerCallback(callbackId, "Жду текст рассылки");
+            maxApiClient.answerCallback(callbackId, null);
             maxApiClient.sendMessageToUser(user.getId(), messageFactory.askBroadcastText(), keyboardFactory.cancelOnly());
             return;
         }
@@ -332,28 +474,28 @@ public class BotUpdateHandler {
         if ("admin:add".equals(payload)) {
             user.setConversationState(ConversationState.WAITING_ADMIN_ID);
             botUserRepository.save(user);
-            maxApiClient.answerCallback(callbackId, "Жду user_id нового администратора");
+            maxApiClient.answerCallback(callbackId, null);
             maxApiClient.sendMessageToUser(user.getId(), messageFactory.askAdminId(), keyboardFactory.cancelOnly());
             return;
         }
 
         if (payload.startsWith("admin:tickets:")) {
             int page = parsePage(payload);
-            maxApiClient.answerCallback(callbackId, "Показываю заявки");
+            maxApiClient.answerCallback(callbackId, null);
             renderOpenTickets(user, page);
             return;
         }
 
         if (payload.startsWith("admin:users:")) {
             int page = parsePage(payload);
-            maxApiClient.answerCallback(callbackId, "Показываю пользователей");
+            maxApiClient.answerCallback(callbackId, null);
             renderUsers(user, page);
             return;
         }
 
         if (payload.startsWith("ticket:view:")) {
             long ticketId = parseId(payload);
-            maxApiClient.answerCallback(callbackId, "Открываю заявку");
+            maxApiClient.answerCallback(callbackId, null);
             renderTicket(ticketId, user);
             return;
         }
@@ -369,7 +511,7 @@ public class BotUpdateHandler {
             user.setConversationState(ConversationState.WAITING_REJECTION_REASON);
             user.setActiveTicketId(ticketId);
             botUserRepository.save(user);
-            maxApiClient.answerCallback(callbackId, "Напишите причину отклонения");
+            maxApiClient.answerCallback(callbackId, null);
             maxApiClient.sendMessageToUser(user.getId(), "✍️ Напишите причину отклонения для заявки #" + ticketId + ".", keyboardFactory.cancelOnly());
             return;
         }
@@ -382,7 +524,7 @@ public class BotUpdateHandler {
 
         if (payload.startsWith("user:view:")) {
             long targetUserId = parseId(payload);
-            maxApiClient.answerCallback(callbackId, "Открываю карточку пользователя");
+            maxApiClient.answerCallback(callbackId, null);
             renderUserCard(targetUserId, user);
             return;
         }
@@ -399,21 +541,22 @@ public class BotUpdateHandler {
             return;
         }
 
-        maxApiClient.answerCallback(callbackId, "Команда не распознана");
+        maxApiClient.answerCallback(callbackId, null);
         showAdminMenu(user);
     }
 
     private void renderOpenTickets(BotUser user, int page) {
+        user.setListPage(page);
+        botUserRepository.save(user);
         Page<Ticket> tickets = ticketService.pagedOpenTickets(Math.max(page, 0));
         List<List<InlineKeyboardButton>> rows = new ArrayList<>();
         tickets.getContent().forEach(ticket -> rows.add(List.of(
-                InlineKeyboardButton.callback(
-                        "#" + ticket.getId() + " | " + messageFactory.statusLabel(ticket.getStatus()) + " | " + TextUtils.truncate(ticket.getFullName(), 24),
-                        "ticket:view:" + ticket.getId()
+                InlineKeyboardButton.message(
+                        "📄 Заявка #" + ticket.getId() + " | " + messageFactory.statusLabel(ticket.getStatus()) + " | " + TextUtils.truncate(ticket.getFullName(), 24)
                 )
         )));
-        addPager(rows, "admin:tickets", tickets.getNumber(), tickets.getTotalPages());
-        rows.add(List.of(InlineKeyboardButton.callback("В админ панель", "admin:menu")));
+        addPager(rows, "tickets", tickets.getNumber(), tickets.getTotalPages());
+        rows.add(List.of(InlineKeyboardButton.message("🛠 Админ панель")));
         maxApiClient.sendMessageToUser(
                 user.getId(),
                 messageFactory.pendingTicketsHeader(tickets.getNumber(), tickets.getTotalPages(), tickets.getTotalElements()),
@@ -422,16 +565,17 @@ public class BotUpdateHandler {
     }
 
     private void renderUsers(BotUser user, int page) {
+        user.setListPage(page);
+        botUserRepository.save(user);
         Page<BotUser> users = userService.pagedUsers(Math.max(page, 0));
         List<List<InlineKeyboardButton>> rows = new ArrayList<>();
         users.getContent().forEach(target -> rows.add(List.of(
-                InlineKeyboardButton.callback(
-                        target.getId() + " | " + (target.isAdmin() ? "админ" : "пользователь") + " | " + TextUtils.truncate(target.getDisplayName(), 18),
-                        "user:view:" + target.getId()
+                InlineKeyboardButton.message(
+                        "👤 Пользователь " + target.getId() + " | " + (target.isAdmin() ? "админ" : "пользователь") + " | " + TextUtils.truncate(target.getDisplayName(), 18)
                 )
         )));
-        addPager(rows, "admin:users", users.getNumber(), users.getTotalPages());
-        rows.add(List.of(InlineKeyboardButton.callback("В админ панель", "admin:menu")));
+        addPager(rows, "users", users.getNumber(), users.getTotalPages());
+        rows.add(List.of(InlineKeyboardButton.message("🛠 Админ панель")));
         maxApiClient.sendMessageToUser(
                 user.getId(),
                 messageFactory.usersHeader(users.getNumber(), users.getTotalPages(), users.getTotalElements()),
@@ -468,11 +612,11 @@ public class BotUpdateHandler {
     private void onAcceptTicket(BotUser admin, long ticketId, String callbackId) {
         Ticket ticket = ticketService.findById(ticketId).orElse(null);
         if (ticket == null) {
-            maxApiClient.answerCallback(callbackId, "Заявка не найдена");
+            maxApiClient.answerCallback(callbackId, null);
             return;
         }
         ticketService.accept(ticket, admin);
-        maxApiClient.answerCallback(callbackId, "Заявка принята");
+        maxApiClient.answerCallback(callbackId, null);
         maxApiClient.sendMessageToUser(admin.getId(), "✅ Принято | Заявка #" + ticketId + " | Админ: " + admin.getId(), keyboardFactory.adminMenu());
         sendUserNotification(ticket.getRequesterId(), messageFactory.ticketAcceptedForUser(ticket));
     }
@@ -480,11 +624,11 @@ public class BotUpdateHandler {
     private void onCompleteTicket(BotUser admin, long ticketId, String callbackId) {
         Ticket ticket = ticketService.findById(ticketId).orElse(null);
         if (ticket == null) {
-            maxApiClient.answerCallback(callbackId, "Заявка не найдена");
+            maxApiClient.answerCallback(callbackId, null);
             return;
         }
         ticketService.complete(ticket, admin);
-        maxApiClient.answerCallback(callbackId, "Заявка отмечена исполненной");
+        maxApiClient.answerCallback(callbackId, null);
         maxApiClient.sendMessageToUser(admin.getId(), "🎉 Заявка #" + ticketId + " отмечена исполненной.", keyboardFactory.adminMenu());
         sendUserNotification(ticket.getRequesterId(), messageFactory.ticketCompletedForUser(ticket));
     }
@@ -492,12 +636,12 @@ public class BotUpdateHandler {
     private void onPromote(long targetUserId, BotUser actor, String callbackId) {
         BotUser target = userService.findById(targetUserId).orElse(null);
         if (target == null) {
-            maxApiClient.answerCallback(callbackId, "Пользователь не найден");
+            maxApiClient.answerCallback(callbackId, null);
             return;
         }
         boolean wasAdmin = target.isAdmin();
         userService.promoteToAdmin(target);
-        maxApiClient.answerCallback(callbackId, wasAdmin ? "У пользователя уже есть права администратора" : "Права администратора выданы");
+        maxApiClient.answerCallback(callbackId, null);
         renderUserCard(targetUserId, actor);
         if (!wasAdmin) {
             maxApiClient.sendMessageToUser(target.getId(), messageFactory.adminGranted(), keyboardFactory.simpleAdminPanelButton());
@@ -506,16 +650,16 @@ public class BotUpdateHandler {
 
     private void onDemote(long targetUserId, BotUser actor, String callbackId) {
         if (targetUserId == actor.getId()) {
-            maxApiClient.answerCallback(callbackId, "Нельзя снять права у самого себя");
+            maxApiClient.answerCallback(callbackId, null);
             return;
         }
         BotUser target = userService.findById(targetUserId).orElse(null);
         if (target == null) {
-            maxApiClient.answerCallback(callbackId, "Пользователь не найден");
+            maxApiClient.answerCallback(callbackId, null);
             return;
         }
         userService.demoteFromAdmin(target);
-        maxApiClient.answerCallback(callbackId, "Права администратора сняты");
+        maxApiClient.answerCallback(callbackId, null);
         renderUserCard(targetUserId, actor);
         sendUserNotification(target.getId(), "ℹ️ Права администратора были сняты.");
     }
@@ -551,16 +695,26 @@ public class BotUpdateHandler {
     }
 
     private void addPager(List<List<InlineKeyboardButton>> rows, String prefix, int currentPage, int totalPages) {
-        List<InlineKeyboardButton> pager = new ArrayList<>();
         if (currentPage > 0) {
-            pager.add(InlineKeyboardButton.callback("⬅️ Назад", prefix + ":" + (currentPage - 1)));
+            String label = prefix.equals("tickets") ? "📂 Страница заявок " + currentPage : "👥 Страница пользователей " + currentPage;
+            rows.add(List.of(InlineKeyboardButton.message("⬅️ " + label)));
         }
         if (currentPage + 1 < totalPages) {
-            pager.add(InlineKeyboardButton.callback("Вперёд ➡️", prefix + ":" + (currentPage + 1)));
+            String label = prefix.equals("tickets") ? "📂 Страница заявок " + (currentPage + 2) : "👥 Страница пользователей " + (currentPage + 2);
+            rows.add(List.of(InlineKeyboardButton.message("➡️ " + label)));
         }
-        if (!pager.isEmpty()) {
-            rows.add(pager);
+    }
+
+    private Long extractLong(String text, Pattern pattern) {
+        Matcher matcher = pattern.matcher(text);
+        if (matcher.matches()) {
+            return Long.parseLong(matcher.group(1));
         }
+        return null;
+    }
+
+    private String cleanProblemType(String text) {
+        return TextUtils.truncate(text.replaceFirst("^[^\\p{L}\\p{N}]+\\s*", "").trim(), 255);
     }
 
     private int parsePage(String payload) {
