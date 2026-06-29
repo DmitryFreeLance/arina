@@ -615,10 +615,32 @@ public class BotUpdateHandler {
             maxApiClient.answerCallback(callbackId, null);
             return;
         }
+
+        if (ticket.getStatus() == TicketStatus.ACCEPTED) {
+            maxApiClient.answerCallback(callbackId, null);
+            if (admin.getId().equals(ticket.getAssignedAdminId())) {
+                maxApiClient.sendMessageToUser(admin.getId(), messageFactory.ticketAlreadyAcceptedByYou(ticket), keyboardFactory.adminMenu());
+            } else {
+                maxApiClient.sendMessageToUser(admin.getId(), messageFactory.ticketAlreadyAccepted(ticket), keyboardFactory.adminMenu());
+            }
+            return;
+        }
+
+        if (ticket.getStatus() == TicketStatus.REJECTED || ticket.getStatus() == TicketStatus.COMPLETED) {
+            maxApiClient.answerCallback(callbackId, null);
+            maxApiClient.sendMessageToUser(
+                    admin.getId(),
+                    "ℹ️ Заявка #" + ticket.getId() + " уже имеет статус: " + messageFactory.statusLabel(ticket.getStatus()) + ".",
+                    keyboardFactory.adminMenu()
+            );
+            return;
+        }
+
         ticketService.accept(ticket, admin);
         maxApiClient.answerCallback(callbackId, null);
         maxApiClient.sendMessageToUser(admin.getId(), "✅ Принято | Заявка #" + ticketId + " | Админ: " + admin.getId(), keyboardFactory.adminMenu());
         sendUserNotification(ticket.getRequesterId(), messageFactory.ticketAcceptedForUser(ticket));
+        notifyOtherAdminsAboutAcceptance(ticket, admin);
     }
 
     private void onCompleteTicket(BotUser admin, long ticketId, String callbackId) {
@@ -675,6 +697,24 @@ public class BotUpdateHandler {
                 );
             } catch (Exception ex) {
                 log.warn("Could not notify admin {} about ticket {}: {}", admin.getId(), ticket.getId(), ex.getMessage());
+            }
+        }
+    }
+
+    private void notifyOtherAdminsAboutAcceptance(Ticket ticket, BotUser actor) {
+        List<BotUser> admins = userService.admins();
+        for (BotUser admin : admins) {
+            if (admin.getId().equals(actor.getId())) {
+                continue;
+            }
+            try {
+                maxApiClient.sendMessageToUser(
+                        admin.getId(),
+                        messageFactory.ticketAcceptedForAdmins(ticket),
+                        keyboardFactory.adminMenu()
+                );
+            } catch (Exception ex) {
+                log.warn("Could not notify admin {} about accepted ticket {}: {}", admin.getId(), ticket.getId(), ex.getMessage());
             }
         }
     }

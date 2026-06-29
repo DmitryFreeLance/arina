@@ -80,6 +80,20 @@ public class MessageFactory {
                 + "Администратор: " + TextUtils.safe(ticket.getAssignedAdminName()) + ".";
     }
 
+    public String ticketAcceptedForAdmins(Ticket ticket) {
+        return "✅ Заявка #" + ticket.getId() + " уже принята в работу.\n\n"
+                + "Администратор: " + TextUtils.safe(ticket.getAssignedAdminName()) + ".";
+    }
+
+    public String ticketAlreadyAccepted(Ticket ticket) {
+        return "ℹ️ Заявка #" + ticket.getId() + " уже принята администратором "
+                + TextUtils.safe(ticket.getAssignedAdminName()) + ".";
+    }
+
+    public String ticketAlreadyAcceptedByYou(Ticket ticket) {
+        return "ℹ️ Заявка #" + ticket.getId() + " уже принята вами.";
+    }
+
     public String ticketRejectedForUser(Ticket ticket) {
         return "❌ Заявка #" + ticket.getId() + " отклонена.\n\n"
                 + "Причина: " + TextUtils.safe(ticket.getRejectionReason());
